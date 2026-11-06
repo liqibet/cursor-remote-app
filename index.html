@@ -20,7 +20,7 @@
   body { position: fixed; left: 0; top: 0; width: 100%; height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
          padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
   button, select, textarea, input { font: inherit; color: #e6e6e6; background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 8px; }
-  button { padding: 6px 12px; white-space: nowrap; cursor: pointer; }
+  button { padding: 6px 12px; white-space: nowrap; cursor: pointer; touch-action: manipulation; }
   button:active { filter: brightness(1.3); }
   button.on, button.primary { background: #0e639c; border-color: #1177bb; color: #fff; }
   [hidden] { display: none !important; }
@@ -28,7 +28,7 @@
   header { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #252526; border-bottom: 1px solid #333; min-width: 0; }
   #dot { width: 9px; height: 9px; border-radius: 50%; background: #c33; flex: none; }
   #dot.ok { background: #3c3; }
-  #title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; background: none; border: none; padding: 4px 2px; text-align: left; color: #ccc; font-size: 14px; }
+  #title { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 4px; background: none; border: none; padding: 4px 2px; text-align: left; color: #ccc; font-size: 14px; }
   #title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #title::after { content: "▾"; color: #888; flex: none; }
   .seg { display: flex; flex: none; border: 1px solid #3c3c3c; border-radius: 8px; overflow: hidden; }
@@ -63,7 +63,7 @@
   .btns button { font-size: 13px; padding: 5px 10px; }
   .btns button.primary { font-weight: 600; }
   #empty { color: #888; text-align: center; margin-top: 30vh; padding: 0 20px; }
-  #toBottom { position: absolute; right: 14px; bottom: 12px; border-radius: 20px; padding: 6px 12px; background: #333d; display: none; }
+  #toBottom { position: absolute; right: 12px; bottom: 12px; z-index: 6; min-width: 48px; min-height: 44px; border-radius: 22px; padding: 8px 14px; background: #0e639c; border-color: #1177bb; color: #fff; font-weight: 600; box-shadow: 0 2px 8px #000a; display: none; }
   #actionBar { flex: none; display: none; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: #2a2d2e; border-top: 1px solid #333; }
   #actionBar.show { display: flex; }
   #actionBar button { flex: 1; padding: 9px; font-weight: 600; }
@@ -140,7 +140,7 @@
   #sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; background: #252526; border-radius: 14px 14px 0 0; padding: 12px 12px calc(14px + env(safe-area-inset-bottom)); max-height: 75dvh; overflow-y: auto; transform: translateY(105%); transition: transform .2s; }
   #sheet.open { transform: none; }
   #sheet h3 { margin: 2px 4px 10px; font-size: 15px; color: #ccc; font-weight: 600; }
-  .opt { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 11px 12px; margin-bottom: 6px; white-space: normal; }
+  .opt { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 12px; margin-bottom: 6px; min-height: 48px; white-space: normal; }
   .opt .lbl { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .opt .sub { display: block; font-size: 12px; color: #888; margin-top: 2px; }
   .opt .tag { flex: none; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #3a3d41; color: #bbb; }
@@ -604,7 +604,7 @@ function closeSheet() {
   $('shade').classList.remove('open');
   $('sheet').classList.remove('open');
 }
-$('shade').onclick = () => { closeSheet(); askDone?.(false); };
+bindTap($('shade'), () => { closeSheet(); askDone?.(false); });
 
 // Confirmation for anything that interrupts the Agent or throws work away; resolves false if dismissed.
 let askDone = null;
@@ -631,12 +631,41 @@ function winLabel(title) {
   return { name: host ? `${folder} · ${host}` : folder, file: parts.join(' — ') };
 }
 
+let sheetTouching = false;
+let windowsSig = '';
+let windowsDirty = false;
 function showWindows() {
+  const sig = windows.map(w => `${w.id}\t${w.title}\t${w.kind}`).join('\n') + '\n' + currentWindow;
+  if (sheetKind === 'windows' && sig === windowsSig) return;
+  if (sheetTouching && sheetKind === 'windows') { windowsDirty = true; return; }
+  windowsSig = sig;
+  windowsDirty = false;
   const rows = windows.map(w => `<button class="opt ${w.id === currentWindow ? 'cur' : ''}" data-win="${esc(w.id)}">
     <span class="tag">${KIND_TAG[w.kind] || ''}</span><span class="lbl">${esc(winLabel(w.title || w.id).name)}${winLabel(w.title || '').file ? `<span class="sub">${esc(winLabel(w.title).file)}</span>` : ''}</span></button>`).join('');
   openSheet('windows', `<h3>切换 Cursor 窗口</h3>${rows || '<div class="hint">没有找到窗口</div>'}`);
 }
-$('title').onclick = () => { send({ t: 'windows' }); showWindows(); };
+function bindTap(el, fn) {
+  let start = null;
+  el.addEventListener('pointerdown', e => {
+    if (e.isPrimary === false) return;
+    start = { x: e.clientX, y: e.clientY };
+  });
+  el.addEventListener('pointerup', e => {
+    if (!start) return;
+    const s = start;
+    start = null;
+    if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 18) return;
+    fn(e);
+  });
+  el.addEventListener('pointercancel', () => { start = null; });
+}
+document.addEventListener('pointerdown', e => { if (e.target.closest('#sheet')) sheetTouching = true; });
+document.addEventListener('pointerup', () => {
+  sheetTouching = false;
+  if (windowsDirty && sheetKind === 'windows') showWindows();
+});
+document.addEventListener('pointercancel', () => { sheetTouching = false; });
+bindTap($('title'), () => { send({ t: 'windows' }); showWindows(); });
 
 const MENU_TITLE = { mode: '选择模式', model: '选择模型', history: '历史对话' };
 function showMenu(kind, items, max) {
@@ -844,10 +873,10 @@ function showInstallHelp() {
     ${installEvent ? '<button class="opt" data-act="browserInstall"><span class="lbl">或者：用浏览器安装（需要谷歌服务）</span></button>' : ''}`);
 }
 
-$('sheet').addEventListener('click', async e => {
+bindTap($('sheet'), async e => {
   const b = e.target.closest('button');
-  if (!b) return;
-  if (b.dataset.win) { closeSheet(); return send({ t: 'attach', id: b.dataset.win }); }
+  if (!b || !$('sheet').contains(b)) return;
+  if (b.dataset.win) { closeSheet(); status('正在切换窗口…'); return send({ t: 'attach', id: b.dataset.win }); }
   if (b.dataset.kind) { closeSheet(); status('切换中…'); return send({ t: 'pickMenu', kind: b.dataset.kind, label: b.dataset.label }); }
   if (b.dataset.chopen) { closeSheet(); return openFile(b.dataset.chopen); }
   if (b.dataset.ch) {
@@ -1091,11 +1120,19 @@ $('queueBar').onclick = async e => {
   status(b.dataset.a === 'send' ? '已立即发送这条排队消息' : '已删除这条排队消息');
 };
 
+function placeToBottom() {
+  const h = ['qnBar', 'queueBar', 'actionBar'].reduce((n, id) => {
+    const el = $(id);
+    return n + (el.classList.contains('show') ? el.offsetHeight : 0);
+  }, 0);
+  $('toBottom').style.bottom = (12 + h) + 'px';
+}
 function updateToBottom() {
+  placeToBottom();
   $('toBottom').style.display = nearBottom() ? 'none' : 'block';
 }
 list.addEventListener('scroll', updateToBottom);
-$('toBottom').onclick = () => { list.scrollTop = list.scrollHeight; };
+bindTap($('toBottom'), () => { list.scrollTop = list.scrollHeight; updateToBottom(); });
 $('older').onclick = () => send({ t: 'scrollChat', dy: -900 });
 
 document.addEventListener('click', async e => {
